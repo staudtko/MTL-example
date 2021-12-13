@@ -1,0 +1,75 @@
+-- copy the code into a text file and rename it to alarm.smv
+-- start with
+-- nuxmv -time -int alarm.smv
+-- go_time
+-- timed_check_ltlspec 
+
+@TIME_DOMAIN continuous
+
+MODULE main
+  DEFINE
+  	-- alarm sirene is heard in these states
+    sirene := state in {alarmON, countdown, evacuate};
+
+  VAR
+    state: {idle, alarmON, countdown, evacuate};
+    c: clock;
+
+  -- INVAR state: cannot stay longer in the countdown than 10 time units
+  INVAR state = countdown -> c <= 10;
+  -- FAIRNESS: it cannot stay in evacuate forever
+	FAIRNESS state != evacuate;
+	-- time cannot elapse in an URGENT state 
+  URGENT state = alarmON;
+
+  ASSIGN
+    init(state) := idle;
+    next(state) :=
+      case
+        state = idle : {idle, alarmON};
+        state = alarmON : countdown;
+        state = countdown & c < 10 : {countdown, idle};
+        state = countdown & c >= 10 : evacuate;
+        state = evacuate : {evacuate, idle};
+        TRUE: state;
+      esac;
+
+    -- clock reset when not in a countdown state
+    init(c) := 0;
+    next(c) :=
+      case
+        -- Reset when moving from `alarmON` to `countdown`.
+        state != countdown & next(state) = countdown : 0;
+        -- keep same value in all other cases.
+        TRUE: c;
+      esac;
+
+  INVARSPEC sirene <-> (state = alarmON | state = countdown | state = evacuate);
+  -- clock reset.
+  INVARSPEC (state != countdown & next(state) = countdown) -> next(c) = 0;
+  INVARSPEC c > 0 & next(c) = 0 -> next(state) = countdown;
+
+-- MTL CHECKS
+	  -- Does the program fulfill
+  LTLSPEC G (state = alarmON -> ((F (state = idle & c < 10)) | (F (state = evacuate & c = 10))));
+
+  --Safety 
+  	-- no deadlocks
+	  LTLSPEC G F (state = idle);
+  	-- we cannot be in the countdown state with c<10 -> we get a counterexample
+  	LTLSPEC G (state=evacuate -> c<10); 
+  	-- but we can be with c>10
+    LTLSPEC G (state=evacuate -> c>=10); 
+	  
+	--Liveness: 
+		--finally in start state 
+		LTLSPEC F (state = idle);
+		-- reachability
+	  LTLSPEC F (state=countdown -> ( F(state=evacuate) | F(state = idle)))
+
+  
+  -- Weak Fairness: when in state evacuate it will go to idle
+  LTLSPEC F G(state = evacuate -> G F (state = idle));
+  
+
+
